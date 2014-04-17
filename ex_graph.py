@@ -162,6 +162,7 @@ def main():
     global data, labels
 
     window = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption('ConvnetPy 2D Classifcation')
     pygame.time.set_timer(pygame.USEREVENT, 1)  # Re-fire ASAP
 
     ## NET
