@@ -647,15 +647,173 @@ class TanhLayer(object):
         self.layer_type = json['layer_type']
 
 
-# class DropoutLayer # line 1229 convnet.js
+class DropoutLayer(object):
+
+    def __init__(self, **opts):
+
+        self.out_sx = opts.get("in_sx")
+        self.out_sy = opts.get("in_sy")
+        self.out_depth = opts.get("in_depth")
+        self.layer_type = 'dropout'
+        self.drop_prop = opts.get('drop_prob', 0.5)
+        self.dropped = [0] * (self.out_sx * self.out_sy * self.out_depth)
+
+    def forward(self, V, is_training):
+        self.in_act = V
+        V2 = V.clone()
+        N = len(V.w)
+
+        if is_training:
+            # do dropout
+            for i in xrange(N):
+                if random.random() < self.drop_prop:
+                     # drop!
+                    V2.w[i] = 0
+                    self.dropped[i] = True
+                else:
+                    self.dropped[i] = False
+        else:
+            # scale the activations during prediction
+            for i in xrange(N):
+                V2.w[i] *= self.drop_prop
+        self.out_act = V2
+        return V2 # dummy identity function for now
+
+    def backward(self, y=None):
+        V = self.in_act # we need to set dw of this
+        chain_grad = self.out_act
+        N = len(V.w)
+        V.dw = [0] * N # zero out gradient wrt data
+        for i in xrange(N):
+            if self.dropped[i]:
+                V.dw[i] = chain_grad.dw[i] # copy over the gradient
+
+    def get_params_and_grads(self):
+        return []
+
+    def to_json(self):
+        return {
+            'out_depth': self.out_depth,
+            'out_sx': self.out_sx,
+            'out_sy': self.out_sy,
+            'layer_type': self.layer_type,
+            'drop_prob' : self.drop_prop,
+        }
+
+    def from_json(self, json):
+        self.out_depth = json['out_depth']
+        self.out_sx = json['out_sx']
+        self.out_sy = json['out_sy']
+        self.layer_type = json['layer_type']
+        self.drop_prop = json['drop_prob']
+
 # class LocalResponseNormalizationLayer # line 1301 convnet.js
+
+class LocalResponseNormalizationLayer(object):
+
+    def __init__(self, **opts):
+
+        self.k = opts.get('k')
+        self.n = opts.get('n')
+        self.alpha = opts.get('alpha')
+        self.beta = opts.get('beta')
+
+        self.out_sx = opts.get("in_sx")
+        self.out_sy = opts.get("in_sy")
+        self.out_depth = opts.get("in_depth")
+        self.layer_type = 'lrn'
+
+        if self.n % 2 == 0:
+            raise Exception('WARNING n should be odd for LRN layer')
+
+    def forward(self, V, is_training):
+
+        self.in_act = V
+
+        A = V.clone_and_zero()
+        self.S_cache_ = V.clone_and_zero()
+        n2 = math.floor(self.n/2.0)
+        for x in xrange(V.sx):
+            for y in xrange(V.sy):
+                for i in xrange(V.depth):
+                    ai = V.get(x, y, i)
+                    # normalize in a window of size n
+                    den = 0.0
+                    for j in xrange(max(0, i-n2), min(i+n2, V.depth-1) + 1):
+                        aa = V.get(x, y, j)
+                        den += aa * aa
+                    den *= self.alpha / self.n
+                    den += self.k
+                    self.S_cache_.set(x, y, i, den) # will be useful for backprop
+                    den = math.pow(den, self.beta)
+                    A.set(x, y, i, ai/den)
+        self.out_act = A
+        return A # dummy identity function for now
+
+    def backward(self, y=None):
+
+        # evaluate gradient wrt data
+        V = self.in_act # we need to set dw of this
+        V.dw = [0] * len(V.w) # zero out gradient wrt data
+
+        n2 = math.floor(self.n / 2.0)
+        for x in xrange(V.sx):
+            for y in xrange(V.sy):
+                for i in xrange(V.depth):
+
+                    chain_grad = self.out_act.get_grad(x, y, i)
+                    S = self.S_cache_.get(x, y, i)
+                    SB = math.pow(S, self.beta)
+                    SB2 = SB * SB
+
+                    for j in xrange(max(0, i-n2), min(i+n2, V.depth-1) + 1):
+                        aj = V.get(x, y, j)
+                        g = -aj * self.beta * math.pow(S, self.beta-1) * self.alpha / self.n * 2 * aj;
+                        if j == i:
+                            g += SB
+                        g /= SB2
+                        g *= chain_grad
+                        V.add_grad(x, y, j, g)
+
+    def get_params_and_grads(self):
+        return []
+
+    def to_json(self):
+        return {
+            'k' : self.k,
+            'n' : self.n,
+            'alpha' : self.alpha,
+            'beta' : self.beta,
+            'out_depth': self.out_depth,
+            'out_sx': self.out_sx,
+            'out_sy': self.out_sy,
+            'layer_type': self.layer_type,
+        }
+
+    def from_json(self, json):
+        self.out_depth = json['out_depth']
+        self.out_sx = json['out_sx']
+        self.out_sy = json['out_sy']
+        self.layer_type = json['layer_type']
+        self.k = json['k']
+        self.n = json['n']
+        self.alpha = json['alpha']
+        self.beta = json['beta']
+
+
+
+
+
+
+
+
 # class QuadTransformLayer # line 1414 convnet.js
 
 
 LAYERS = {
     "fc": FullyConnLayer,
-    "lrn": None,
-    "dropout": None,
+    "lrn": LocalResponseNormalizationLayer,
+    "dropout": DropoutLayer,
     "input": InputLayer,
     "softmax": SoftmaxLayer,
     "regression": None,
