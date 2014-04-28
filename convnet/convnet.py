@@ -596,10 +596,120 @@ class SoftmaxLayer(object):
         self.layer_type = json['layer_type']
         self.num_inputs = json['num_inputs']
 
+class RegressionLayer(object):
+    def __init__(self, **opts):
+        self.num_inputs = opts.get('in_sx') * opts.get('in_sy') * opts.get('in_depth')
+        self.out_depth = self.num_inputs
+        self.out_sx = 1
+        self.out_sy = 1
+        self.layer_type = 'regression'
 
-# class RegressionLayer # line 798 convnet.js
-# class SVMLayer # line 860 convnet.js
-# class ReluLayer # line 935 convnet.js
+    def forward(self, V, is_training):
+        self.in_act = V
+        self.out_act = V
+        return V  # identity function
+
+    # y is a list here of size num_inputs
+    def backward(self, y=None):
+        # compute and accumulate gradient wrt weights and bias of this layer
+        x = self.in_act
+        x.dw = [0] * len(x.w)  # zero out the gradient of input Vol
+        loss = 0.0
+        if isinstance(y, (list, tuple)):
+            for i in xrange(self.out_depth):
+                dy = x.w[i] - y[i]
+                x.dw[i] = dy
+                loss += 2 * dy * dy
+        else:
+            # assume it is a struct with entries .dim and .val
+            # and we pass gradient only along dimension dim to be equal to val
+            i = y.dim
+            yi = y.val
+            dy = x.w[i] - yi
+            x.dw[i] = dy
+            loss += 2 * dy * dy
+        return loss
+
+    def get_params_and_grads(self):
+        return []
+
+    def to_json(self):
+        return {
+            'out_depth': self.out_depth,
+            'out_sx': self.out_sx,
+            'out_sy': self.out_sy,
+            'layer_type': self.layer_type,
+            'num_inputs': self.num_inputs,
+        }
+
+    def from_json(self, json):
+        self.out_depth = json['out_depth']
+        self.out_sx = json['out_sx']
+        self.out_sy = json['out_sy']
+        self.layer_type = json['layer_type']
+        self.num_inputs = json['num_inputs']
+
+
+class SVMLayer(object):
+    def __init__(self, **opts):
+        self.num_inputs = opts.get('in_sx') * opts.get('in_sy') * opts.get('in_depth')
+        self.out_depth = self.num_inputs
+        self.out_sx = 1
+        self.out_sy = 1
+        self.layer_type = 'svm'
+
+    def forward(self, V, is_training):
+        self.in_act = V
+        self.out_act = V
+        return V  # identity function
+
+    # y is a list here of size num_inputs
+    def backward(self, y=None):
+        # compute and accumulate gradient wrt weights and bias of this layer
+        x = self.in_act
+        x.dw = [0] * len(x.w)  # zero out the gradient of input Vol
+
+        yscore = x.w[y] # score of ground truth
+        margin = 1.0
+        loss = 0.0
+        for i in xrange(self.out_depth):
+            if -yscore + x.w[i] + margin > 0:
+                # violating example, apply loss
+                # I love hinge loss, by the way. Truly.
+                # Seriously, compare this SVM code with Softmax forward AND backprop code above
+                # it's clear which one is superior, not only in code, simplicity
+                # and beauty, but also in practice.
+                x.dw[i] += 1
+                x.dw[y] -= 1
+                loss += -yscore + x.w[i] + margin
+
+        return loss
+
+
+    def get_params_and_grads(self):
+        return []
+
+    def to_json(self):
+        return {
+            'out_depth': self.out_depth,
+            'out_sx': self.out_sx,
+            'out_sy': self.out_sy,
+            'layer_type': self.layer_type,
+            'num_inputs': self.num_inputs,
+        }
+
+    def from_json(self, json):
+        self.out_depth = json['out_depth']
+        self.out_sx = json['out_sx']
+        self.out_sy = json['out_sy']
+        self.layer_type = json['layer_type']
+        self.num_inputs = json['num_inputs']
+
+
+
+
+
+# class ReluLayer # line 988 convnet.js
 # class SigmoidLayer # line 988 convnet.js
 # class MaxoutLayer # line 1043 convnet.js
 
@@ -648,7 +758,6 @@ class TanhLayer(object):
 
 
 class DropoutLayer(object):
-
     def __init__(self, **opts):
 
         self.out_sx = opts.get("in_sx")
@@ -667,7 +776,7 @@ class DropoutLayer(object):
             # do dropout
             for i in xrange(N):
                 if random.random() < self.drop_prop:
-                     # drop!
+                    # drop!
                     V2.w[i] = 0
                     self.dropped[i] = True
                 else:
@@ -677,16 +786,16 @@ class DropoutLayer(object):
             for i in xrange(N):
                 V2.w[i] *= self.drop_prop
         self.out_act = V2
-        return V2 # dummy identity function for now
+        return V2  # dummy identity function for now
 
     def backward(self, y=None):
-        V = self.in_act # we need to set dw of this
+        V = self.in_act  # we need to set dw of this
         chain_grad = self.out_act
         N = len(V.w)
-        V.dw = [0] * N # zero out gradient wrt data
+        V.dw = [0] * N  # zero out gradient wrt data
         for i in xrange(N):
             if self.dropped[i]:
-                V.dw[i] = chain_grad.dw[i] # copy over the gradient
+                V.dw[i] = chain_grad.dw[i]  # copy over the gradient
 
     def get_params_and_grads(self):
         return []
@@ -697,7 +806,7 @@ class DropoutLayer(object):
             'out_sx': self.out_sx,
             'out_sy': self.out_sy,
             'layer_type': self.layer_type,
-            'drop_prob' : self.drop_prop,
+            'drop_prob': self.drop_prop,
         }
 
     def from_json(self, json):
@@ -707,10 +816,8 @@ class DropoutLayer(object):
         self.layer_type = json['layer_type']
         self.drop_prop = json['drop_prob']
 
-# class LocalResponseNormalizationLayer # line 1301 convnet.js
 
 class LocalResponseNormalizationLayer(object):
-
     def __init__(self, **opts):
 
         self.k = opts.get('k')
@@ -732,29 +839,29 @@ class LocalResponseNormalizationLayer(object):
 
         A = V.clone_and_zero()
         self.S_cache_ = V.clone_and_zero()
-        n2 = math.floor(self.n/2.0)
+        n2 = math.floor(self.n / 2.0)
         for x in xrange(V.sx):
             for y in xrange(V.sy):
                 for i in xrange(V.depth):
                     ai = V.get(x, y, i)
                     # normalize in a window of size n
                     den = 0.0
-                    for j in xrange(max(0, i-n2), min(i+n2, V.depth-1) + 1):
+                    for j in xrange(max(0, i - n2), min(i + n2, V.depth - 1) + 1):
                         aa = V.get(x, y, j)
                         den += aa * aa
                     den *= self.alpha / self.n
                     den += self.k
-                    self.S_cache_.set(x, y, i, den) # will be useful for backprop
+                    self.S_cache_.set(x, y, i, den)  # will be useful for backprop
                     den = math.pow(den, self.beta)
-                    A.set(x, y, i, ai/den)
+                    A.set(x, y, i, ai / den)
         self.out_act = A
-        return A # dummy identity function for now
+        return A  # dummy identity function for now
 
     def backward(self, y=None):
 
         # evaluate gradient wrt data
-        V = self.in_act # we need to set dw of this
-        V.dw = [0] * len(V.w) # zero out gradient wrt data
+        V = self.in_act  # we need to set dw of this
+        V.dw = [0] * len(V.w)  # zero out gradient wrt data
 
         n2 = math.floor(self.n / 2.0)
         for x in xrange(V.sx):
@@ -766,9 +873,9 @@ class LocalResponseNormalizationLayer(object):
                     SB = math.pow(S, self.beta)
                     SB2 = SB * SB
 
-                    for j in xrange(max(0, i-n2), min(i+n2, V.depth-1) + 1):
+                    for j in xrange(max(0, i - n2), min(i + n2, V.depth - 1) + 1):
                         aj = V.get(x, y, j)
-                        g = -aj * self.beta * math.pow(S, self.beta-1) * self.alpha / self.n * 2 * aj;
+                        g = -aj * self.beta * math.pow(S, self.beta - 1) * self.alpha / self.n * 2 * aj;
                         if j == i:
                             g += SB
                         g /= SB2
@@ -780,10 +887,10 @@ class LocalResponseNormalizationLayer(object):
 
     def to_json(self):
         return {
-            'k' : self.k,
-            'n' : self.n,
-            'alpha' : self.alpha,
-            'beta' : self.beta,
+            'k': self.k,
+            'n': self.n,
+            'alpha': self.alpha,
+            'beta': self.beta,
             'out_depth': self.out_depth,
             'out_sx': self.out_sx,
             'out_sy': self.out_sy,
@@ -801,13 +908,72 @@ class LocalResponseNormalizationLayer(object):
         self.beta = json['beta']
 
 
+class QuadTransformLayer(object):
+    def __init__(self, **opts):
+
+        self.out_sx = opts.get('in_sx')
+        self.out_sy = opts.get('in_sy')
+
+        d = opts.get('in_depth')
+        self.out_depth = d + d * d
+
+        self.layer_type = 'quadtransform'
+
+    def forward(self, V, is_training):
+
+        self.in_act = V
+        N = self.out_depth
+        Ni = V.depth
+        V2 = Vol(self.out_sx, self.out_sy, self.out_depth, 0.0)
+
+        for x in xrange(V.sx):
+            for y in xrange(V.sy):
+                for i in xrange(N):
+                    if i < Ni:
+                        V2.set(x, y, i, V.get(x, y, i))  # copy these over (linear terms)
+                    else:
+                        i0 = int(math.floor((i - Ni) / float(Ni)))
+                        i1 = int((i - Ni) - i0 * Ni)
+                        V2.set(x, y, i, V.get(x, y, i0) * V.get(x, y, i1))  # quadratic
+        self.out_act = V2
+        return self.out_act  # dummy identity function for now
+
+    def backward(self, y=None):
+        V = self.in_act
+        V.dw = [0] * len(V.w)
+        V2 = self.out_act
+        N = self.out_depth
+        Ni = V.depth
+
+        for x in xrange(V.sx):
+            for y in xrange(V.sy):
+                for i in xrange(N):
+                    chain_grad = V2.get_grad(x, y, i)
+                    if i < Ni:
+                        V.add_grad(x, y, i, chain_grad)
+                    else:
+                        i0 = int(math.floor((i - Ni) / float(Ni)))
+                        i1 = int((i - Ni) - i0 * Ni)
+                        V.add_grad(x, y, i0, V.get(x, y, i1) * chain_grad)
+                        V.add_grad(x, y, i1, V.get(x, y, i0) * chain_grad)
 
 
+    def get_params_and_grads(self):
+        return []
 
+    def to_json(self):
+        return {
+            'out_depth': self.out_depth,
+            'out_sx': self.out_sx,
+            'out_sy': self.out_sy,
+            'layer_type': self.layer_type,
+        }
 
-
-
-# class QuadTransformLayer # line 1414 convnet.js
+    def from_json(self, json):
+        self.out_depth = json['out_depth']
+        self.out_sx = json['out_sx']
+        self.out_sy = json['out_sy']
+        self.layer_type = json['layer_type']
 
 
 LAYERS = {
@@ -816,15 +982,15 @@ LAYERS = {
     "dropout": DropoutLayer,
     "input": InputLayer,
     "softmax": SoftmaxLayer,
-    "regression": None,
+    "regression": RegressionLayer,
     "conv": ConvLayer,
     "pool": None,
     "relu": None,
     "sigmoid": None,
     "tanh": TanhLayer,
     "maxout": None,
-    "quadtransform": None,
-    "svm": None,
+    "quadtransform": QuadTransformLayer,
+    "svm": SVMLayer,
 }
 
 
