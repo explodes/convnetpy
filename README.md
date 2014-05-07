@@ -3,7 +3,7 @@ convnetpy
 
 convnet.js python port with examples
 
-convnet.js is a neural network library that works really really well.
+convnet.js is a neural network library that works really well in a browser with a simple API.
 
 I wanted to play with the source to learn about how it worked, and I figured the best way was to port it to python.
 
